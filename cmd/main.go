@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	k "github.com/kiquetal/k8s-rules-viewer/internal/kubernetes"
 	"github.com/kiquetal/k8s-rules-viewer/internal/tui"
 	"github.com/rivo/tview"
@@ -81,6 +82,9 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	labelSelector := fmt.Sprintf("app=%s", appLabel)
 	podInfoList := k.GetPodInfoByLabel(clientset, namespace, labelSelector)
 
+	// Get the actual pod names for log retrieval
+	podNames := k.GetPodNamesByLabel(clientset, namespace, labelSelector)
+
 	// Format the pod information into a single string for display
 	var podInfoBuilder strings.Builder
 	podInfoBuilder.WriteString(fmt.Sprintf("Pods with label '%s':\n\n", labelSelector))
@@ -144,20 +148,93 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	krakendTextView.SetScrollable(true)
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
-	// Pod Logs Section (hardcoded example, to be replaced with dynamic logic)
-	podLogs := tui.GetPodLogsScreen()
+	// Pod Logs Section - now getting actual logs from the first pod
 	podLogsTextView := tview.NewTextView()
 	podLogsTextView.SetBorder(true)
-	podLogsTextView.SetTitle("Pod Logs")
-	podLogsTextView.SetText(podLogs)
-	podLogsTextView.SetScrollable(true) // Enable scrolling
-	mainFlex.AddItem(podLogsTextView, 0, 1, false)
+	podLogsTextView.SetScrollable(true)
+	podLogsTextView.SetDynamicColors(true)
+
+	// Check if we have any pods to display logs from
+	if len(podNames) > 0 {
+		// Get the first pod's name for initial log display
+		currentPodName := podNames[0]
+
+		// Set the title to show which pod's logs are being displayed
+		podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s)", currentPodName))
+
+		// Initial logs load
+		logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100)
+		if err != nil {
+			podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
+		} else {
+			podLogsTextView.SetText(logs)
+		}
+
+		// Create a dropdown to select different pods for logs
+		if len(podNames) > 1 {
+			// Create a form for pod selection
+			podSelectForm := tview.NewForm()
+
+			// Add dropdown for pod selection
+			podSelectForm.AddDropDown("Pod:", podNames, 0, func(option string, optionIndex int) {
+				selectedPod := podNames[optionIndex]
+				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s)", selectedPod))
+
+				// Fetch and display logs for the selected pod
+				logs, err := k.GetPodLogs(clientset, namespace, selectedPod, 100)
+				if err != nil {
+					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
+				} else {
+					podLogsTextView.SetText(logs)
+				}
+			})
+
+			// Create a flex container for the pod selector and logs
+			podLogsContainer := tview.NewFlex().SetDirection(tview.FlexRow)
+			podLogsContainer.AddItem(podSelectForm, 3, 0, false)
+			podLogsContainer.AddItem(podLogsTextView, 0, 1, true)
+
+			podLogsContainer.SetBorder(true)
+			podLogsContainer.SetTitle(fmt.Sprintf("Pod Logs"))
+
+			mainFlex.AddItem(podLogsContainer, 0, 1, false)
+		} else {
+			// Only one pod, no need for a dropdown
+			mainFlex.AddItem(podLogsTextView, 0, 1, false)
+		}
+	} else {
+		// No pods found
+		podLogsTextView.SetTitle("Pod Logs")
+		podLogsTextView.SetText("No pods found with the specified label")
+		mainFlex.AddItem(podLogsTextView, 0, 1, false)
+	}
 
 	// Add help text at the bottom
 	helpText := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press Ctrl+C to exit.")
 	mainFlex.AddItem(helpText, 1, 0, false)
+
+	// Set up key bindings for refreshing logs
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyF5 {
+			// If pods are available, refresh logs for current selection
+			if len(podNames) > 0 {
+				currentPodName := podLogsTextView.GetTitle()
+				currentPodName = strings.TrimPrefix(currentPodName, "Pod Logs (")
+				currentPodName = strings.TrimSuffix(currentPodName, ")")
+
+				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100)
+				if err != nil {
+					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
+				} else {
+					podLogsTextView.SetText(logs)
+				}
+			}
+			return nil // Consume the key event
+		}
+		return event // Pass other keys through
+	})
 
 	// Set the root layout and render the TUI
 	app.SetRoot(mainFlex, true)
