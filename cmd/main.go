@@ -99,6 +99,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	deploymentTextView.SetBorder(true)
 	deploymentTextView.SetTitle("Deployment Details")
 	deploymentTextView.SetText(deploymentInfo)
+	deploymentTextView.SetScrollable(true)
 	contentFlex.AddItem(deploymentTextView, 0, 1, false)
 
 	// Service Info Section
@@ -106,41 +107,57 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	serviceTextView.SetBorder(true)
 	serviceTextView.SetTitle("Service Details")
 	serviceTextView.SetText(serviceInfo)
+	serviceTextView.SetScrollable(true)
 	contentFlex.AddItem(serviceTextView, 0, 1, false)
 
-	// Pod Info Section - now using the combined information from all pods
+	// Pod Info Section - now using the combined information from all pods with scrolling
 	podTextView := tview.NewTextView()
 	podTextView.SetBorder(true)
 	podTextView.SetTitle(fmt.Sprintf("Pod Monitoring (label: %s)", labelSelector))
 	podTextView.SetText(podInfo)
-	contentFlex.AddItem(podTextView, 0, 1, false)
+	podTextView.SetScrollable(true) // Enable scrolling
+	podTextView.SetDynamicColors(true)
+	contentFlex.AddItem(podTextView, 0, 1, true) // Make this section focused for scrolling
 
 	// Add content section to the main layout
 	mainFlex.AddItem(contentFlex, 0, 1, true)
 
 	// Rules Compliance Section (hardcoded example, to be replaced with dynamic logic)
-	rulesCompliance := tui.GetRulesCompliance() // Assume you fetch rules dynamically in tui package
+	rulesCompliance := tui.GetRulesCompliance()
 	rulesTextView := tview.NewTextView()
 	rulesTextView.SetBorder(true)
 	rulesTextView.SetTitle("Rules Compliance")
 	rulesTextView.SetText(rulesCompliance)
+	rulesTextView.SetScrollable(true) // Enable scrolling
 	mainFlex.AddItem(rulesTextView, 0, 1, false)
 
-	// Krakend Config Check Section - updated to use the provided Krakend ConfigMap name
-	krakendConfigCheck := tui.GetKrakendConfigCheck() // Assume you fetch Krakend info dynamically in tui package
+	// Krakend Config Check Section - now using the actual function to analyze the ConfigMap
+	krakendConfigCheck, err := tui.KrakenDBackendServiceCheck(clientset, namespace, krakendMap, appLabel)
+	if err != nil {
+		krakendConfigCheck = fmt.Sprintf("Error analyzing Krakend ConfigMap: %v", err)
+	}
+
 	krakendTextView := tview.NewTextView()
 	krakendTextView.SetBorder(true)
 	krakendTextView.SetTitle(fmt.Sprintf("Krakend Config Check (%s)", krakendMap))
 	krakendTextView.SetText(krakendConfigCheck)
+	krakendTextView.SetScrollable(true)
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
 	// Pod Logs Section (hardcoded example, to be replaced with dynamic logic)
-	podLogs := tui.GetPodLogsScreen() // Using the new function we implemented
+	podLogs := tui.GetPodLogsScreen()
 	podLogsTextView := tview.NewTextView()
 	podLogsTextView.SetBorder(true)
 	podLogsTextView.SetTitle("Pod Logs")
 	podLogsTextView.SetText(podLogs)
+	podLogsTextView.SetScrollable(true) // Enable scrolling
 	mainFlex.AddItem(podLogsTextView, 0, 1, false)
+
+	// Add help text at the bottom
+	helpText := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press Ctrl+C to exit.")
+	mainFlex.AddItem(helpText, 1, 0, false)
 
 	// Set the root layout and render the TUI
 	app.SetRoot(mainFlex, true)

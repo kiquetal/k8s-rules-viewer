@@ -117,10 +117,30 @@ func findServiceReferences(config interface{}, serviceName string) []string {
 					fmt.Sprintf("Endpoint: %s → Backend: %s", endpointPath, url))
 			}
 
-			// Check host field for service name
-			if host, ok := backendMap["host"].(string); ok && strings.Contains(host, serviceName) {
-				references = append(references,
-					fmt.Sprintf("Endpoint: %s → Host: %s", endpointPath, host))
+			// Check host field which could be either a string or an array of strings
+			found := false
+			switch host := backendMap["host"].(type) {
+			case string:
+				if strings.Contains(host, serviceName) {
+					references = append(references,
+						fmt.Sprintf("Endpoint: %s → Host: %s", endpointPath, host))
+					found = true
+				}
+			case []interface{}:
+				// Handle the case where host is an array of strings
+				for _, h := range host {
+					if hostStr, ok := h.(string); ok && strings.Contains(hostStr, serviceName) {
+						references = append(references,
+							fmt.Sprintf("Endpoint: %s → Host: %s", endpointPath, hostStr))
+						found = true
+						break // Found in this host array, no need to check further
+					}
+				}
+			}
+
+			// If found in the host, continue to the next backend
+			if found {
+				continue
 			}
 		}
 	}
