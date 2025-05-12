@@ -31,9 +31,3 @@ func GetServiceInfo(clientset *kubernetes.Clientset, namespace, serviceName stri
 
 	return info
 }
-
-// RenderService renders the service details in the TUI
-func RenderService(clientset *kubernetes.Clientset, app *tview.Application, namespace string) {
-	// Implementation would go here
-	// This is a placeholder to satisfy the compiler as it's referenced in earlier discussions
-}
