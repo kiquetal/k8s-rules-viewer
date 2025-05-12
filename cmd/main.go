@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +15,18 @@ import (
 )
 
 func main() {
+	// Define command-line flags for app label, namespace, and krakend config map name
+	appLabel := flag.String("label", "py-kannel", "Application label to filter resources")
+	namespace := flag.String("namespace", "default", "Kubernetes namespace to search in")
+	krakendConfigMap := flag.String("krakend-map", "krakend-config", "Name of the Krakend ConfigMap to look for")
+
+	// Parse command-line flags
+	flag.Parse()
+
+	// Display the parameters being used
+	fmt.Printf("Using parameters:\n  Label: %s\n  Namespace: %s\n  Krakend ConfigMap: %s\n",
+		*appLabel, *namespace, *krakendConfigMap)
+
 	// Load Kubernetes config from default location if not specified
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
@@ -37,8 +51,8 @@ func main() {
 	// Create a new tview application
 	app := tview.NewApplication()
 
-	// Render the TUI layout with dynamic data
-	renderTUI(app, clientset)
+	// Render the TUI layout with dynamic data using the provided parameters
+	renderTUI(app, clientset, *appLabel, *namespace, *krakendConfigMap)
 
 	// Run the application
 	if err := app.Run(); err != nil {
@@ -47,20 +61,20 @@ func main() {
 }
 
 // renderTUI will render the dashboard with dynamic data fetched from Kubernetes
-func renderTUI(app *tview.Application, clientset *kubernetes.Clientset) {
+func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel, namespace, krakendMap string) {
 	// Create the main layout (using Flex to organize the UI)
 	mainFlex := tview.NewFlex().SetDirection(tview.FlexRow)
 
-	// Add the header (title)
+	// Add the header (title) with dynamic parameters
 	header := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("k8s-viewer-rules - Label: app-py-kannel")
+		SetText(fmt.Sprintf("k8s-viewer-rules - Label: %s - Namespace: %s", appLabel, namespace))
 	mainFlex.AddItem(header, 3, 0, false)
 
-	// Fetch dynamic Deployment, Service, and Pod Info
-	deploymentInfo := k.GetDeploymentInfo(clientset, "default", "py-kannel")
-	serviceInfo := k.GetServiceInfo(clientset, "default", "py-kannel-service")
-	podInfo := k.GetPodInfo(clientset, "default", "py-kannel-pod")
+	// Fetch dynamic Deployment, Service, and Pod Info using the provided parameters
+	deploymentInfo := k.GetDeploymentInfo(clientset, namespace, appLabel)
+	serviceInfo := k.GetServiceInfo(clientset, namespace, appLabel+"-service")
+	podInfo := k.GetPodInfo(clientset, namespace, appLabel+"-pod")
 
 	// Create content layout (deployment, service, pod info displayed side by side)
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
@@ -97,18 +111,18 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset) {
 	rulesTextView.SetText(rulesCompliance)
 	mainFlex.AddItem(rulesTextView, 0, 1, false)
 
-	// Krakend Config Check Section (hardcoded example, to be replaced with dynamic logic)
+	// Krakend Config Check Section - updated to use the provided Krakend ConfigMap name
 	krakendConfigCheck := tui.GetKrakendConfigCheck() // Assume you fetch Krakend info dynamically in tui package
 	krakendTextView := tview.NewTextView()
 	krakendTextView.SetBorder(true)
-	krakendTextView.SetTitle("Krakend Config Check")
+	krakendTextView.SetTitle(fmt.Sprintf("Krakend Config Check (%s)", krakendMap))
 	krakendTextView.SetText(krakendConfigCheck)
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
 	// Pod Logs Section (hardcoded example, to be replaced with dynamic logic)
 	podLogs := tui.GetPodLogsScreen() // Using the new function we implemented
 	podLogsTextView := tview.NewTextView()
-	podLogsTextView.SetBorder(true) // Fixed: was incorrectly using podTextView
+	podLogsTextView.SetBorder(true)
 	podLogsTextView.SetTitle("Pod Logs")
 	podLogsTextView.SetText(podLogs)
 	mainFlex.AddItem(podLogsTextView, 0, 1, false)
