@@ -70,10 +70,10 @@ func RenderPod(clientset *kubernetes.Clientset, app *tview.Application, namespac
 	} else {
 		// Display information for each pod
 		for i, podInfo := range podInfoList {
-			podTextView := tview.NewTextView().
-				SetBorder(true).
-				SetTitle(fmt.Sprintf("Pod %d", i+1)).
-				SetText(podInfo)
+			podTextView := tview.NewTextView()
+			podTextView.SetBorder(true)
+			podTextView.SetTitle(fmt.Sprintf("Pod %d", i+1))
+			podTextView.SetText(podInfo)
 
 			flex.AddItem(podTextView, 0, 1, false)
 

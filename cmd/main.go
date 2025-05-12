@@ -66,24 +66,24 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset) {
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
 	// Deployment Info Section
-	deploymentTextView := tview.NewTextView().
-		SetBorder(true).
-		SetTitle("Deployment Details").
-		SetText(deploymentInfo)
+	deploymentTextView := tview.NewTextView()
+	deploymentTextView.SetBorder(true)
+	deploymentTextView.SetTitle("Deployment Details")
+	deploymentTextView.SetText(deploymentInfo)
 	contentFlex.AddItem(deploymentTextView, 0, 1, false)
 
 	// Service Info Section
-	serviceTextView := tview.NewTextView().
-		SetBorder(true).
-		SetTitle("Service Details").
-		SetText(serviceInfo)
+	serviceTextView := tview.NewTextView()
+	serviceTextView.SetBorder(true)
+	serviceTextView.SetTitle("Service Details")
+	serviceTextView.SetText(serviceInfo)
 	contentFlex.AddItem(serviceTextView, 0, 1, false)
 
 	// Pod Info Section
-	podTextView := tview.NewTextView().
-		SetBorder(true).
-		SetTitle("Pod Monitoring").
-		SetText(podInfo)
+	podTextView := tview.NewTextView()
+	podTextView.SetBorder(true)
+	podTextView.SetTitle("Pod Monitoring")
+	podTextView.SetText(podInfo)
 	contentFlex.AddItem(podTextView, 0, 1, false)
 
 	// Add content section to the main layout
@@ -91,26 +91,26 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset) {
 
 	// Rules Compliance Section (hardcoded example, to be replaced with dynamic logic)
 	rulesCompliance := tui.GetRulesCompliance() // Assume you fetch rules dynamically in tui package
-	rulesTextView := tview.NewTextView().
-		SetBorder(true).
-		SetTitle("Rules Compliance").
-		SetText(rulesCompliance)
+	rulesTextView := tview.NewTextView()
+	rulesTextView.SetBorder(true)
+	rulesTextView.SetTitle("Rules Compliance")
+	rulesTextView.SetText(rulesCompliance)
 	mainFlex.AddItem(rulesTextView, 0, 1, false)
 
 	// Krakend Config Check Section (hardcoded example, to be replaced with dynamic logic)
 	krakendConfigCheck := tui.GetKrakendConfigCheck() // Assume you fetch Krakend info dynamically in tui package
-	krakendTextView := tview.NewTextView().
-		SetBorder(true).
-		SetTitle("Krakend Config Check").
-		SetText(krakendConfigCheck)
+	krakendTextView := tview.NewTextView()
+	krakendTextView.SetBorder(true)
+	krakendTextView.SetTitle("Krakend Config Check")
+	krakendTextView.SetText(krakendConfigCheck)
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
 	// Pod Logs Section (hardcoded example, to be replaced with dynamic logic)
 	podLogs := tui.GetPodLogs() // Assume you fetch logs dynamically in tui package
-	podLogsTextView := tview.NewTextView().
-		SetBorder(true).
-		SetTitle("Pod Logs").
-		SetText(podLogs)
+	podLogsTextView := tview.NewTextView()
+	podTextView.SetBorder(true)
+	podLogsTextView.SetTitle("Pod Logs")
+	podLogsTextView.SetText(podLogs)
 	mainFlex.AddItem(podLogsTextView, 0, 1, false)
 
 	// Set the root layout and render the TUI
