@@ -68,61 +68,60 @@ func KrakenDBackendServiceCheck(clientset *kubernetes.Clientset, namespace, conf
 	return result, nil
 }
 
-// findServiceReferences recursively searches the KrakenD config for service references
+// findServiceReferences searches the KrakenD config for service references
+// by iterating through endpoints and backends (non-recursive approach)
 func findServiceReferences(config interface{}, serviceName string) []string {
 	var references []string
 
-	switch v := config.(type) {
-	case map[string]interface{}:
-		// Check if this is an endpoint with backends
-		if endpoints, ok := v["endpoints"].([]interface{}); ok {
-			for _, endpoint := range endpoints {
-				if endpointMap, ok := endpoint.(map[string]interface{}); ok {
-					if backends, ok := endpointMap["backend"].([]interface{}); ok {
-						for _, backend := range backends {
-							if backendMap, ok := backend.(map[string]interface{}); ok {
-								if url, ok := backendMap["url_pattern"].(string); ok {
-									if strings.Contains(url, serviceName) {
-										endpoint := "unknown"
-										if ep, ok := endpointMap["endpoint"].(string); ok {
-											endpoint = ep
-										}
-										references = append(references,
-											fmt.Sprintf("Endpoint: %s → Backend: %s", endpoint, url))
-									}
-								}
-								// Also check host field which might contain service references
-								if host, ok := backendMap["host"].(string); ok {
-									if strings.Contains(host, serviceName) {
-										endpoint := "unknown"
-										if ep, ok := endpointMap["endpoint"].(string); ok {
-											endpoint = ep
-										}
-										references = append(references,
-											fmt.Sprintf("Endpoint: %s → Host: %s", endpoint, host))
-									}
-								}
-							}
-						}
-					}
-				}
-				// Recursively check this endpoint
-				refs := findServiceReferences(endpoint, serviceName)
-				references = append(references, refs...)
+	// Check if config is a map and has endpoints
+	configMap, ok := config.(map[string]interface{})
+	if !ok {
+		return references
+	}
+
+	// Get the endpoints array
+	endpoints, ok := configMap["endpoints"].([]interface{})
+	if !ok {
+		return references
+	}
+
+	// Iterate through each endpoint
+	for _, endpoint := range endpoints {
+		endpointMap, ok := endpoint.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get endpoint path for reference
+		endpointPath, _ := endpointMap["endpoint"].(string)
+		if endpointPath == "" {
+			endpointPath = "unknown"
+		}
+
+		// Get the backends array
+		backends, ok := endpointMap["backend"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		// Iterate through each backend
+		for _, backend := range backends {
+			backendMap, ok := backend.(map[string]interface{})
+			if !ok {
+				continue
 			}
-		}
 
-		// Recursively check all other fields
-		for _, val := range v {
-			refs := findServiceReferences(val, serviceName)
-			references = append(references, refs...)
-		}
+			// Check url_pattern for service name
+			if url, ok := backendMap["url_pattern"].(string); ok && strings.Contains(url, serviceName) {
+				references = append(references,
+					fmt.Sprintf("Endpoint: %s → Backend: %s", endpointPath, url))
+			}
 
-	case []interface{}:
-		// Search through array elements
-		for _, item := range v {
-			refs := findServiceReferences(item, serviceName)
-			references = append(references, refs...)
+			// Check host field for service name
+			if host, ok := backendMap["host"].(string); ok && strings.Contains(host, serviceName) {
+				references = append(references,
+					fmt.Sprintf("Endpoint: %s → Host: %s", endpointPath, host))
+			}
 		}
 	}
 
