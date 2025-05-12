@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/gdamore/tcell/v2"
 	"log"
 	"os"
 	"path/filepath"
@@ -140,7 +141,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	deploymentTextView.SetTitle("Deployment Details")
 	deploymentTextView.SetText(deploymentInfo)
 	deploymentTextView.SetScrollable(true)
-	contentFlex.AddItem(deploymentTextView, 0, 1, false)
+	contentFlex.AddItem(deploymentTextView, 0, 1, true)
 
 	// Service Info Section
 	serviceTextView := tview.NewTextView()
@@ -148,7 +149,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	serviceTextView.SetTitle("Service Details")
 	serviceTextView.SetText(serviceInfo)
 	serviceTextView.SetScrollable(true)
-	contentFlex.AddItem(serviceTextView, 0, 1, false)
+	contentFlex.AddItem(serviceTextView, 0, 1, true)
 
 	// Pod Info Section - now using the combined information from all pods with scrolling
 	podTextView := tview.NewTextView()
@@ -157,21 +158,20 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	podTextView.SetText(podInfo)
 	podTextView.SetScrollable(true) // Enable scrolling
 	podTextView.SetDynamicColors(true)
-	contentFlex.AddItem(podTextView, 0, 1, true) // Make this section focused for scrolling
+	contentFlex.AddItem(podTextView, 0, 1, true)
 
 	// Add content section to the main layout
 	mainFlex.AddItem(contentFlex, 0, 1, true)
 
-	// Rules Compliance Section (hardcoded example, to be replaced with dynamic logic)
-	rulesCompliance := tui.GetRulesCompliance(clientset, namespace)
+	// Rules Compliance Section
 	rulesTextView := tview.NewTextView()
 	rulesTextView.SetBorder(true)
 	rulesTextView.SetTitle("Rules Compliance")
-	rulesTextView.SetText(rulesCompliance)
-	rulesTextView.SetScrollable(true) // Enable scrolling
-	mainFlex.AddItem(rulesTextView, 0, 1, false)
+	rulesTextView.SetText(tui.GetRulesCompliance(clientset, namespace))
+	rulesTextView.SetScrollable(true)
+	mainFlex.AddItem(rulesTextView, 0, 1, true)
 
-	// Krakend Config Check Section - now using the actual function to analyze the ConfigMap
+	// Krakend Config Check Section
 	krakendConfigCheck, err := tui.KrakenDBackendServiceCheck(clientset, namespace, krakendMap, appLabel)
 	if err != nil {
 		krakendConfigCheck = fmt.Sprintf("Error analyzing Krakend ConfigMap: %v", err)
@@ -182,14 +182,45 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	krakendTextView.SetTitle(fmt.Sprintf("Krakend Config Check (%s)", krakendMap))
 	krakendTextView.SetText(krakendConfigCheck)
 	krakendTextView.SetScrollable(true)
-	mainFlex.AddItem(krakendTextView, 0, 1, false)
+	mainFlex.AddItem(krakendTextView, 0, 1, true)
 
 	// Add help text at the bottom
 	helpText := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press Ctrl+C to exit.")
+		SetText("Use Tab to switch focus between panels. Use arrow keys to scroll content. Press Ctrl+C to exit.")
 	mainFlex.AddItem(helpText, 1, 0, false)
+
+	// Store all focusable views in order
+	focusableViews := []tview.Primitive{
+		deploymentTextView,
+		serviceTextView,
+		podTextView,
+		rulesTextView,
+		krakendTextView,
+	}
+
+	// Set the initial focus to the first view
+	app.SetFocus(deploymentTextView)
+
+	// Track current focus index
+	currentFocus := 0
 
 	// Set the root layout and render the TUI
 	app.SetRoot(mainFlex, true)
+
+	// Set input capture to handle tab navigation between panels
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyTab {
+			// Move to next focusable view
+			currentFocus = (currentFocus + 1) % len(focusableViews)
+			app.SetFocus(focusableViews[currentFocus])
+			return nil
+		} else if event.Key() == tcell.KeyBacktab {
+			// Move to previous focusable view
+			currentFocus = (currentFocus - 1 + len(focusableViews)) % len(focusableViews)
+			app.SetFocus(focusableViews[currentFocus])
+			return nil
+		}
+		return event
+	})
 }
