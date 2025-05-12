@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	k "github.com/kiquetal/k8s-rules-viewer/internal/kubernetes"
 	"github.com/kiquetal/k8s-rules-viewer/internal/tui"
@@ -74,7 +75,21 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	// Fetch dynamic Deployment, Service, and Pod Info using the provided parameters
 	deploymentInfo := k.GetDeploymentInfo(clientset, namespace, appLabel)
 	serviceInfo := k.GetServiceInfo(clientset, namespace, appLabel)
-	podInfo := k.GetPodInfo(clientset, namespace, appLabel+"-pod")
+
+	// Use GetPodInfoByLabel to get pods by label instead of by pod name
+	// Create the label selector (format: "key=value")
+	labelSelector := fmt.Sprintf("app=%s", appLabel)
+	podInfoList := k.GetPodInfoByLabel(clientset, namespace, labelSelector)
+
+	// Format the pod information into a single string for display
+	var podInfoBuilder strings.Builder
+	podInfoBuilder.WriteString(fmt.Sprintf("Pods with label '%s':\n\n", labelSelector))
+
+	for i, podInfo := range podInfoList {
+		podInfoBuilder.WriteString(fmt.Sprintf("--- Pod %d ---\n%s\n", i+1, podInfo))
+	}
+
+	podInfo := podInfoBuilder.String()
 
 	// Create content layout (deployment, service, pod info displayed side by side)
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
@@ -93,10 +108,10 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	serviceTextView.SetText(serviceInfo)
 	contentFlex.AddItem(serviceTextView, 0, 1, false)
 
-	// Pod Info Section
+	// Pod Info Section - now using the combined information from all pods
 	podTextView := tview.NewTextView()
 	podTextView.SetBorder(true)
-	podTextView.SetTitle("Pod Monitoring")
+	podTextView.SetTitle(fmt.Sprintf("Pod Monitoring (label: %s)", labelSelector))
 	podTextView.SetText(podInfo)
 	contentFlex.AddItem(podTextView, 0, 1, false)
 
