@@ -106,9 +106,9 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset) {
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
 	// Pod Logs Section (hardcoded example, to be replaced with dynamic logic)
-	podLogs := tui.GetPodLogs() // Assume you fetch logs dynamically in tui package
+	podLogs := tui.GetPodLogsScreen() // Using the new function we implemented
 	podLogsTextView := tview.NewTextView()
-	podTextView.SetBorder(true)
+	podLogsTextView.SetBorder(true) // Fixed: was incorrectly using podTextView
 	podLogsTextView.SetTitle("Pod Logs")
 	podLogsTextView.SetText(podLogs)
 	mainFlex.AddItem(podLogsTextView, 0, 1, false)
