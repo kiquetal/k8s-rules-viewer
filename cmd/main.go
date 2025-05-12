@@ -73,7 +73,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 
 	// Fetch dynamic Deployment, Service, and Pod Info using the provided parameters
 	deploymentInfo := k.GetDeploymentInfo(clientset, namespace, appLabel)
-	serviceInfo := k.GetServiceInfo(clientset, namespace, appLabel+"-service")
+	serviceInfo := k.GetServiceInfo(clientset, namespace, appLabel)
 	podInfo := k.GetPodInfo(clientset, namespace, appLabel+"-pod")
 
 	// Create content layout (deployment, service, pod info displayed side by side)
