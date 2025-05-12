@@ -187,31 +187,6 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResu
 		Description: "Resource limits are set correctly",
 		Passed:      true,
 	})
-	results = append(results, RuleResult{
-		Name:        "Liveness Probe",
-		Description: "Liveness probe is configured",
-		Passed:      true,
-	})
-	results = append(results, RuleResult{
-		Name:        "Readiness Probe",
-		Description: "Readiness probe is configured",
-		Passed:      true,
-	})
-	results = append(results, RuleResult{
-		Name:        "Security Context",
-		Description: "Security context is properly set",
-		Passed:      false,
-	})
-	results = append(results, RuleResult{
-		Name:        "Network Policies",
-		Description: "Network policies are applied",
-		Passed:      true,
-	})
-	results = append(results, RuleResult{
-		Name:        "RBAC",
-		Description: "RBAC is properly configured",
-		Passed:      true,
-	})
 
 	return results
 }
@@ -231,21 +206,4 @@ func GetRulesCompliance(clientset *kubernetes.Clientset, namespace string) strin
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-// For backward compatibility
-func GetDefaultRulesCompliance() string {
-	symbols := GetStatusSymbols()
-
-	return strings.Join([]string{
-		symbols.Success + " Resource Limits: Set correctly",
-		symbols.Success + " Liveness Probe: Configured",
-		symbols.Success + " Readiness Probe: Configured",
-		symbols.Failure + " Security Context: Not set",
-		symbols.Success + " Network Policies: Applied",
-		symbols.Success + " RBAC: Properly configured",
-		symbols.Failure + " Service Account: Missing in pod spec (required for mTLS)",
-		symbols.Failure + " Deployment Labels: Missing required labels",
-		symbols.Failure + " Service Port Naming: Not following Istio naming conventions",
-	}, "\n")
 }
