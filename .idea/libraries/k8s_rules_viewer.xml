@@ -1,0 +1,12 @@
+<component name="libraryTable">
+  <library name="k8s-rules-viewer">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/k8s_viewer_rules_package.zip!/" />
+      <root url="jar://$PROJECT_DIR$/detailed_dashboard.zip!/" />
+      <root url="jar://$PROJECT_DIR$/my-go-project.zip!/" />
+      <root url="jar://$PROJECT_DIR$/k8s-viewer-tui.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
