@@ -6,16 +6,16 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func RenderDashboard(clientset *kubernetes.Clientset, app *tview.Application, namespace string) {
-	// Create a new flex layout for the dashboard
-	flex := tview.NewFlex().SetDirection(tview.FlexRow)
+func RenderDashboard(clientset *kubernetes.Clientset, app *tview.Application, namespace string, layout *tview.Flex) *tview.Flex {
+	// Clear existing items from layout
+	layout.Clear()
 
 	// Add title
 	title := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText("Kubernetes Dashboard")
 
-	flex.AddItem(title, 0, 1, false)
+	layout.AddItem(title, 0, 1, false)
 
 	// Add buttons for different sections
 	buttons := []struct {
@@ -31,7 +31,7 @@ func RenderDashboard(clientset *kubernetes.Clientset, app *tview.Application, na
 				k.RenderPod(clientset, app, namespace, labelSelector)
 			})
 			form.AddButton("Cancel", func() {
-				RenderDashboard(clientset, app, namespace)
+				RenderDashboard(clientset, app, namespace, layout)
 			})
 
 			app.SetRoot(form, true)
@@ -41,8 +41,8 @@ func RenderDashboard(clientset *kubernetes.Clientset, app *tview.Application, na
 
 	for _, button := range buttons {
 		btn := tview.NewButton(button.label).SetSelectedFunc(button.action)
-		flex.AddItem(btn, 0, 1, false)
+		layout.AddItem(btn, 0, 1, false)
 	}
 
-	app.SetRoot(flex, true)
+	return layout
 }

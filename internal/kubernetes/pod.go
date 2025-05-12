@@ -3,48 +3,60 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+
 	"github.com/rivo/tview"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 // GetPodInfo fetches pod details from the Kubernetes cluster
-func GetPodInfo(clientset *kubernetes.Clientset, namespace, podName string) (string, string) {
+func GetPodInfo(clientset *kubernetes.Clientset, namespace, podName string) string {
 	pod, err := clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Sprintf("Error retrieving pod: %v", err)
+		return fmt.Sprintf("Error retrieving pod: %v", err)
 	}
-	return pod.Name, fmt.Sprintf("Status: %s", pod.Status.Phase)
+
+	info := fmt.Sprintf("Name: %s\nNamespace: %s\nStatus: %s\nNode: %s\nIP: %s\n",
+		pod.Name,
+		pod.Namespace,
+		pod.Status.Phase,
+		pod.Spec.NodeName,
+		pod.Status.PodIP)
+
+	return info
 }
 
 // GetPodInfoByLabel fetches pod details using a label selector
-func GetPodInfoByLabel(clientset *kubernetes.Clientset, namespace, labelSelector string) ([]string, []string) {
+func GetPodInfoByLabel(clientset *kubernetes.Clientset, namespace, labelSelector string) []string {
 	pods, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 
 	if err != nil {
-		return []string{}, []string{fmt.Sprintf("Error retrieving pods: %v", err)}
+		return []string{fmt.Sprintf("Error retrieving pods: %v", err)}
 	}
 
 	if len(pods.Items) == 0 {
-		return []string{}, []string{"No pods found with the specified label"}
+		return []string{"No pods found with the specified label"}
 	}
 
-	names := make([]string, len(pods.Items))
-	statuses := make([]string, len(pods.Items))
+	results := make([]string, len(pods.Items))
 
 	for i, pod := range pods.Items {
-		names[i] = pod.Name
-		statuses[i] = fmt.Sprintf("Status: %s", pod.Status.Phase)
+		results[i] = fmt.Sprintf("Name: %s\nNamespace: %s\nStatus: %s\nNode: %s\nIP: %s\n",
+			pod.Name,
+			pod.Namespace,
+			pod.Status.Phase,
+			pod.Spec.NodeName,
+			pod.Status.PodIP)
 	}
 
-	return names, statuses
+	return results
 }
 
-// RenderPod renders the pod details in the TUI
+// RenderPod renders the pod details in the TUI for pods matching the label selector
 func RenderPod(clientset *kubernetes.Clientset, app *tview.Application, namespace string, labelSelector string) {
-	names, statuses := GetPodInfoByLabel(clientset, namespace, labelSelector)
+	podInfoList := GetPodInfoByLabel(clientset, namespace, labelSelector)
 
 	// Create a new flex layout for pod information
 	flex := tview.NewFlex().SetDirection(tview.FlexRow)
@@ -52,21 +64,22 @@ func RenderPod(clientset *kubernetes.Clientset, app *tview.Application, namespac
 	// Add header
 	flex.AddItem(tview.NewTextView().SetText("Pod Monitoring").SetTextAlign(tview.AlignCenter), 1, 0, false)
 
-	if len(names) == 0 {
+	if len(podInfoList) == 1 && (podInfoList[0] == "No pods found with the specified label" || podInfoList[0][:5] == "Error") {
 		// No pods found or error occurred
-		flex.AddItem(tview.NewTextView().SetText(statuses[0]), 1, 0, false)
+		flex.AddItem(tview.NewTextView().SetText(podInfoList[0]), 1, 0, false)
 	} else {
 		// Display information for each pod
-		for i := range names {
-			podFlex := tview.NewFlex().SetDirection(tview.FlexRow)
-			podFlex.AddItem(tview.NewTextView().SetText(fmt.Sprintf("Name: %s", names[i])), 1, 0, false)
-			podFlex.AddItem(tview.NewTextView().SetText(statuses[i]), 1, 0, false)
+		for i, podInfo := range podInfoList {
+			podTextView := tview.NewTextView().
+				SetBorder(true).
+				SetTitle(fmt.Sprintf("Pod %d", i+1)).
+				SetText(podInfo)
 
-			if i < len(names)-1 {
-				podFlex.AddItem(tview.NewTextView().SetText("---"), 1, 0, false)
+			flex.AddItem(podTextView, 0, 1, false)
+
+			if i < len(podInfoList)-1 {
+				flex.AddItem(tview.NewTextView().SetText(""), 1, 0, false)
 			}
-
-			flex.AddItem(podFlex, 0, 1, false)
 		}
 	}
 

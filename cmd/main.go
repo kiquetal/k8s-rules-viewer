@@ -1,13 +1,15 @@
 package main
 
 import (
+	"log"
+	"os"
+	"path/filepath"
+
+	k "github.com/kiquetal/k8s-rules-viewer/internal/kubernetes"
 	"github.com/kiquetal/k8s-rules-viewer/internal/tui"
 	"github.com/rivo/tview"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"log"
-	"os"
-	"path/filepath"
 )
 
 func main() {
@@ -21,12 +23,12 @@ func main() {
 		kubeconfig = filepath.Join(homeDir, ".kube", "config")
 	}
 
+	// Build the Kubernetes config and clientset
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		log.Fatalf("Error building kubeconfig: %s", err)
 	}
 
-	// Create Kubernetes clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		log.Fatalf("Error creating Kubernetes client: %s", err)
@@ -35,7 +37,7 @@ func main() {
 	// Create a new tview application
 	app := tview.NewApplication()
 
-	// Render the TUI sections
+	// Render the TUI layout with dynamic data
 	renderTUI(app, clientset)
 
 	// Run the application
@@ -44,38 +46,73 @@ func main() {
 	}
 }
 
-// renderTUI will render the dashboard and allow dynamic section changes
+// renderTUI will render the dashboard with dynamic data fetched from Kubernetes
 func renderTUI(app *tview.Application, clientset *kubernetes.Clientset) {
-	// Create a title text view
-	title := tview.NewTextView().
+	// Create the main layout (using Flex to organize the UI)
+	mainFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+
+	// Add the header (title)
+	header := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("Welcome to k8s-rules-viewer!")
+		SetText("k8s-viewer-rules - Label: app-py-kannel")
+	mainFlex.AddItem(header, 3, 0, false)
 
-	// Create menu buttons with vertical orientation
-	menu := tview.NewFlex().SetDirection(tview.FlexRow)
+	// Fetch dynamic Deployment, Service, and Pod Info
+	deploymentInfo := k.GetDeploymentInfo(clientset, "default", "py-kannel")
+	serviceInfo := k.GetServiceInfo(clientset, "default", "py-kannel-service")
+	podInfo := k.GetPodInfo(clientset, "default", "py-kannel-pod")
 
-	// Dashboard button
-	dashboardButton := tview.NewButton("Main Dashboard").SetSelectedFunc(func() {
-		tui.RenderDashboard(clientset, app, "default")
-	})
-	menu.AddItem(dashboardButton, 3, 0, true)
+	// Create content layout (deployment, service, pod info displayed side by side)
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
-	// Service info button
-	serviceButton := tview.NewButton("Service Info").SetSelectedFunc(func() {
-		RenderService(clientset, app, "default", "py-kannel-service")
-	})
-	menu.AddItem(serviceButton, 3, 0, false)
+	// Deployment Info Section
+	deploymentTextView := tview.NewTextView().
+		SetBorder(true).
+		SetTitle("Deployment Details").
+		SetText(deploymentInfo)
+	contentFlex.AddItem(deploymentTextView, 0, 1, false)
 
-	// Pod info button
-	podButton := tview.NewButton("Pod Info").SetSelectedFunc(func() {
-		RenderPod(clientset, app, "default", "py-kannel-pod")
-	})
-	menu.AddItem(podButton, 3, 0, false)
+	// Service Info Section
+	serviceTextView := tview.NewTextView().
+		SetBorder(true).
+		SetTitle("Service Details").
+		SetText(serviceInfo)
+	contentFlex.AddItem(serviceTextView, 0, 1, false)
 
-	// Main layout
-	layout := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(title, 3, 0, false).
-		AddItem(menu, 0, 1, true)
+	// Pod Info Section
+	podTextView := tview.NewTextView().
+		SetBorder(true).
+		SetTitle("Pod Monitoring").
+		SetText(podInfo)
+	contentFlex.AddItem(podTextView, 0, 1, false)
 
-	app.SetRoot(layout, true).SetFocus(menu)
+	// Add content section to the main layout
+	mainFlex.AddItem(contentFlex, 0, 1, true)
+
+	// Rules Compliance Section (hardcoded example, to be replaced with dynamic logic)
+	rulesCompliance := tui.GetRulesCompliance() // Assume you fetch rules dynamically in tui package
+	rulesTextView := tview.NewTextView().
+		SetBorder(true).
+		SetTitle("Rules Compliance").
+		SetText(rulesCompliance)
+	mainFlex.AddItem(rulesTextView, 0, 1, false)
+
+	// Krakend Config Check Section (hardcoded example, to be replaced with dynamic logic)
+	krakendConfigCheck := tui.GetKrakendConfigCheck() // Assume you fetch Krakend info dynamically in tui package
+	krakendTextView := tview.NewTextView().
+		SetBorder(true).
+		SetTitle("Krakend Config Check").
+		SetText(krakendConfigCheck)
+	mainFlex.AddItem(krakendTextView, 0, 1, false)
+
+	// Pod Logs Section (hardcoded example, to be replaced with dynamic logic)
+	podLogs := tui.GetPodLogs() // Assume you fetch logs dynamically in tui package
+	podLogsTextView := tview.NewTextView().
+		SetBorder(true).
+		SetTitle("Pod Logs").
+		SetText(podLogs)
+	mainFlex.AddItem(podLogsTextView, 0, 1, false)
+
+	// Set the root layout and render the TUI
+	app.SetRoot(mainFlex, true)
 }
