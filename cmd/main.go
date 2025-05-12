@@ -163,7 +163,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	mainFlex.AddItem(contentFlex, 0, 1, true)
 
 	// Rules Compliance Section (hardcoded example, to be replaced with dynamic logic)
-	rulesCompliance := tui.GetRulesCompliance()
+	rulesCompliance := tui.GetRulesCompliance(clientset, namespace)
 	rulesTextView := tview.NewTextView()
 	rulesTextView.SetBorder(true)
 	rulesTextView.SetTitle("Rules Compliance")

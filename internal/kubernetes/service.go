@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -17,8 +18,15 @@ func GetServiceInfo(clientset *kubernetes.Clientset, namespace, serviceName stri
 
 	portInfo := ""
 	for _, port := range service.Spec.Ports {
-		portInfo += fmt.Sprintf("- Port: %d, Target Port: %v, Protocol: %s\n",
-			port.Port, port.TargetPort.String(), port.Protocol)
+		// Check if port follows Istio naming conventions
+		portNameValid := isValidIstioPortName(port.Name)
+		validation := "✓"
+		if !portNameValid {
+			validation = "✗"
+		}
+
+		portInfo += fmt.Sprintf("- Name: %s [%s], Port: %d, Target Port: %v, Protocol: %s\n",
+			port.Name, validation, port.Port, port.TargetPort.String(), port.Protocol)
 	}
 
 	info := fmt.Sprintf("Name: %s\nNamespace: %s\nClusterIP: %s\nType: %s\nSelector: %v\nPorts:\n%s",
@@ -30,4 +38,24 @@ func GetServiceInfo(clientset *kubernetes.Clientset, namespace, serviceName stri
 		portInfo)
 
 	return info
+}
+
+// isValidIstioPortName checks if a port name follows Istio naming conventions
+func isValidIstioPortName(portName string) bool {
+	if portName == "" {
+		return false
+	}
+
+	// According to Istio port naming conventions:
+	// Port names should have the format <protocol>[-<suffix>]
+	validProtocols := []string{"http", "http2", "https", "tcp", "tls", "grpc", "mongo", "redis"}
+
+	for _, protocol := range validProtocols {
+		if strings.HasPrefix(portName, protocol) &&
+			(len(portName) == len(protocol) || portName[len(protocol)] == '-') {
+			return true
+		}
+	}
+
+	return false
 }

@@ -19,12 +19,21 @@ func GetPodInfo(clientset *kubernetes.Clientset, namespace, podName string) stri
 		return fmt.Sprintf("Error retrieving pod: %v", err)
 	}
 
-	info := fmt.Sprintf("Name: %s\nNamespace: %s\nStatus: %s\nNode: %s\nIP: %s\n",
+	// Check if serviceAccountName is set
+	serviceAccountInfo := "ServiceAccountName: "
+	if pod.Spec.ServiceAccountName != "" {
+		serviceAccountInfo += pod.Spec.ServiceAccountName + " [✓]"
+	} else {
+		serviceAccountInfo += "Not set [✗] (Required for mTLS)"
+	}
+
+	info := fmt.Sprintf("Name: %s\nNamespace: %s\nStatus: %s\nNode: %s\nIP: %s\n%s\n",
 		pod.Name,
 		pod.Namespace,
 		pod.Status.Phase,
 		pod.Spec.NodeName,
-		pod.Status.PodIP)
+		pod.Status.PodIP,
+		serviceAccountInfo)
 
 	return info
 }
