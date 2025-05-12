@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gdamore/tcell/v2"
 	k "github.com/kiquetal/k8s-rules-viewer/internal/kubernetes"
 	"github.com/kiquetal/k8s-rules-viewer/internal/tui"
 	"github.com/rivo/tview"
@@ -39,6 +38,24 @@ func main() {
 		kubeconfig = filepath.Join(homeDir, ".kube", "config")
 	}
 
+	// Create a new tview application
+	app := tview.NewApplication()
+
+	// Use a simple loading screen until we fetch data
+	loadingText := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetText("Loading data from Kubernetes cluster...\nThis may take a few seconds.")
+	loadingText.SetBorder(true).SetTitle("Loading")
+	app.SetRoot(loadingText, true)
+
+	// Start the application in a goroutine
+	go func() {
+		err := app.Run()
+		if err != nil {
+			log.Fatalf("Error running the application: %v", err)
+		}
+	}()
+
 	// Build the Kubernetes config and clientset
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
@@ -50,19 +67,14 @@ func main() {
 		log.Fatalf("Error creating Kubernetes client: %s", err)
 	}
 
-	// Create a new tview application
-	app := tview.NewApplication()
-
 	// Render the TUI layout with dynamic data using the provided parameters
-	renderTUI(app, clientset, *appLabel, *namespace, *krakendConfigMap)
+	app.QueueUpdateDraw(func() {
+		renderTUI(app, clientset, *appLabel, *namespace, *krakendConfigMap)
+	})
 
-	// Run the application
-	if err := app.Run(); err != nil {
-		log.Fatalf("Error running the application: %v", err)
-	}
+	// Block until the application exits
+	select {}
 }
-
-var podSelectionHandler func(option string, optionIndex int) // ← DECLARE FIRST clearly
 
 // renderTUI will render the dashboard with dynamic data fetched from Kubernetes
 func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel, namespace, krakendMap string) {
@@ -75,17 +87,39 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 		SetText(fmt.Sprintf("k8s-viewer-rules - Label: %s - Namespace: %s", appLabel, namespace))
 	mainFlex.AddItem(header, 3, 0, false)
 
-	// Fetch dynamic Deployment, Service, and Pod Info using the provided parameters
-	deploymentInfo := k.GetDeploymentInfo(clientset, namespace, appLabel)
-	serviceInfo := k.GetServiceInfo(clientset, namespace, appLabel)
-
-	// Use GetPodInfoByLabel to get pods by label instead of by pod name
-	// Create the label selector (format: "key=value")
+	// Fix the label selector format - it should match what's actually used in Kubernetes
+	// This is a common issue when the label doesn't match the expected format
 	labelSelector := fmt.Sprintf("app=%s", appLabel)
+
+	// Also try with app.kubernetes.io/name which is commonly used
+	altLabelSelector := fmt.Sprintf("app.kubernetes.io/name=%s", appLabel)
+
+	// Try first with our primary selector
+	podNames := k.GetPodNamesByLabel(clientset, namespace, labelSelector)
 	podInfoList := k.GetPodInfoByLabel(clientset, namespace, labelSelector)
 
-	// Get the actual pod names for log retrieval
-	podNames := k.GetPodNamesByLabel(clientset, namespace, labelSelector)
+	// If no pods found, try with the alternative selector
+	if len(podNames) == 0 {
+		podNames = k.GetPodNamesByLabel(clientset, namespace, altLabelSelector)
+		podInfoList = k.GetPodInfoByLabel(clientset, namespace, altLabelSelector)
+		if len(podNames) > 0 {
+			labelSelector = altLabelSelector // Update if we found pods with this selector
+		}
+	}
+
+	// If still no pods found, try just matching by the app name without explicit label key
+	if len(podNames) == 0 {
+		// Try a more permissive selector
+		podNames = k.GetPodNamesByLabel(clientset, namespace, appLabel)
+		podInfoList = k.GetPodInfoByLabel(clientset, namespace, appLabel)
+		if len(podNames) > 0 {
+			labelSelector = appLabel // Update if we found pods with this selector
+		}
+	}
+
+	// Fetch dynamic Deployment, Service info
+	deploymentInfo := k.GetDeploymentInfo(clientset, namespace, appLabel)
+	serviceInfo := k.GetServiceInfo(clientset, namespace, appLabel)
 
 	// Format the pod information into a single string for display
 	var podInfoBuilder strings.Builder
@@ -150,229 +184,11 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	krakendTextView.SetScrollable(true)
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
-	// Pod Logs Section - now handling multiple containers
-	podLogsTextView := tview.NewTextView()
-	podLogsTextView.SetBorder(true)
-	podLogsTextView.SetScrollable(true)
-	podLogsTextView.SetDynamicColors(true)
-
-	// Check if we have any pods to display logs from
-	if len(podNames) > 0 {
-		// Get the first pod's name for initial log display
-		currentPodName := podNames[0]
-
-		// Create a flex container for the pod selector, container selector, and logs
-		podLogsContainer := tview.NewFlex().SetDirection(tview.FlexRow)
-
-		// Create a form for pod and container selection
-		podSelectForm := tview.NewForm()
-
-		// Initialize selected container to match app label (most likely the main container)
-		preferredContainer := appLabel
-
-		// Get available containers for the selected pod
-		containers, err := k.GetPodContainers(clientset, namespace, currentPodName)
-		if err != nil {
-			podLogsTextView.SetText(fmt.Sprintf("Error retrieving containers: %v", err))
-		}
-
-		// Find the initial container to select (try to match the app label first)
-		initialContainerIndex := 0
-		currentContainer := ""
-
-		// Try to find a container matching the app label first
-		for i, c := range containers {
-			if strings.Contains(c, preferredContainer) {
-				initialContainerIndex = i
-				currentContainer = c
-				break
-			}
-		}
-
-		// If no matching container found, try to find a container that's not a sidecar
-		if currentContainer == "" {
-			for i, c := range containers {
-				if c != "istio-proxy" && !strings.Contains(c, "istio") &&
-					!strings.HasPrefix(c, "envoy") && !strings.HasPrefix(c, "linkerd") {
-					initialContainerIndex = i
-					currentContainer = c
-					break
-				}
-			}
-		}
-
-		// If still no container found, use the first one if available
-		if currentContainer == "" && len(containers) > 0 {
-			initialContainerIndex = 0
-			currentContainer = containers[0]
-		}
-
-		// Define the pod selection handler function so we can use it twice
-		podSelectionHandler = func(option string, optionIndex int) {
-			selectedPod := podNames[optionIndex]
-			currentPodName = selectedPod
-
-			// Update container list when pod changes
-			containers, err := k.GetPodContainers(clientset, namespace, selectedPod)
-			if err != nil {
-				podLogsTextView.SetText(fmt.Sprintf("Error retrieving containers: %v", err))
-				return
-			}
-
-			// Clear and rebuild the form
-			podSelectForm.Clear(true)
-
-			// Re-add pod dropdown - FIXED: pass the podSelectionHandler as the selected function
-			podSelectForm.AddDropDown("Pod:", podNames, optionIndex, podSelectionHandler)
-
-			// Find the best container to show for this pod
-			newContainerIndex := 0
-			currentContainer = ""
-
-			// Try to match by app label first
-			for i, c := range containers {
-				if strings.Contains(c, preferredContainer) {
-					newContainerIndex = i
-					currentContainer = c
-					break
-				}
-			}
-
-			// If no match by label, try to find a non-sidecar
-			if currentContainer == "" {
-				for i, c := range containers {
-					if c != "istio-proxy" && !strings.Contains(c, "istio") &&
-						!strings.HasPrefix(c, "envoy") && !strings.HasPrefix(c, "linkerd") {
-						newContainerIndex = i
-						currentContainer = c
-						break
-					}
-				}
-			}
-
-			// If still no container found, use the first one
-			if currentContainer == "" && len(containers) > 0 {
-				newContainerIndex = 0
-				currentContainer = containers[0]
-			}
-
-			// Add container dropdown with updated containers
-			podSelectForm.AddDropDown("Container:", containers, newContainerIndex, func(option string, containerIndex int) {
-				selectedContainer := containers[containerIndex]
-				currentContainer = selectedContainer
-				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
-
-				// Fetch logs for selected pod and container
-				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
-				if err != nil {
-					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
-				} else {
-					podLogsTextView.SetText(logs)
-				}
-			})
-
-			// Update logs with the newly selected container
-			if currentContainer != "" {
-				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
-
-				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
-				if err != nil {
-					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
-				} else {
-					podLogsTextView.SetText(logs)
-				}
-			}
-		}
-
-		// Add pod selector dropdown with the handler we defined above
-		podSelectForm.AddDropDown("Pod:", podNames, 0, podSelectionHandler)
-
-		// Add initial container dropdown if containers are available
-		if len(containers) > 0 {
-			podSelectForm.AddDropDown("Container:", containers, initialContainerIndex, func(option string, containerIndex int) {
-				selectedContainer := containers[containerIndex]
-				currentContainer = selectedContainer
-				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
-
-				// Fetch logs for selected pod and container
-				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
-				if err != nil {
-					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
-				} else {
-					podLogsTextView.SetText(logs)
-				}
-			})
-
-			// Initial logs load with selected container
-			podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
-
-			logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
-			if err != nil {
-				podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
-			} else {
-				podLogsTextView.SetText(logs)
-			}
-		} else {
-			podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s)", currentPodName))
-			podLogsTextView.SetText("No containers found in pod")
-		}
-
-		podLogsContainer.AddItem(podSelectForm, 3, 0, false)
-		podLogsContainer.AddItem(podLogsTextView, 0, 1, true)
-
-		podLogsContainer.SetBorder(true)
-		podLogsContainer.SetTitle(fmt.Sprintf("Pod Logs"))
-
-		mainFlex.AddItem(podLogsContainer, 0, 1, false)
-	} else {
-		// No pods found
-		podLogsTextView.SetTitle("Pod Logs")
-		podLogsTextView.SetText("No pods found with the specified label")
-		mainFlex.AddItem(podLogsTextView, 0, 1, false)
-	}
-
 	// Add help text at the bottom
 	helpText := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press F5 to refresh logs. Press Ctrl+C to exit.")
+		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press Ctrl+C to exit.")
 	mainFlex.AddItem(helpText, 1, 0, false)
-
-	// Set up key bindings for refreshing logs
-	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyF5 {
-			// If pods are available, refresh logs for current selection
-			if len(podNames) > 0 {
-				// Parse title to get current pod and container
-				title := podLogsTextView.GetTitle()
-				if !strings.HasPrefix(title, "Pod Logs (") || !strings.HasSuffix(title, ")") {
-					return event
-				}
-
-				info := strings.TrimPrefix(title, "Pod Logs (")
-				info = strings.TrimSuffix(info, ")")
-
-				parts := strings.Split(info, ":")
-
-				var currentPodName, currentContainer string
-				if len(parts) > 1 {
-					currentPodName = parts[0]
-					currentContainer = parts[1]
-				} else {
-					currentPodName = info
-					currentContainer = ""
-				}
-
-				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
-				if err != nil {
-					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
-				} else {
-					podLogsTextView.SetText(logs)
-				}
-			}
-			return nil // Consume the key event
-		}
-		return event // Pass other keys through
-	})
 
 	// Set the root layout and render the TUI
 	app.SetRoot(mainFlex, true)
