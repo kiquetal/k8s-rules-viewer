@@ -62,6 +62,8 @@ func main() {
 	}
 }
 
+var podSelectionHandler func(option string, optionIndex int) // ← DECLARE FIRST clearly
+
 // renderTUI will render the dashboard with dynamic data fetched from Kubernetes
 func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel, namespace, krakendMap string) {
 	// Create the main layout (using Flex to organize the UI)
@@ -148,7 +150,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	krakendTextView.SetScrollable(true)
 	mainFlex.AddItem(krakendTextView, 0, 1, false)
 
-	// Pod Logs Section - now getting actual logs from the first pod
+	// Pod Logs Section - now handling multiple containers
 	podLogsTextView := tview.NewTextView()
 	podLogsTextView.SetBorder(true)
 	podLogsTextView.SetScrollable(true)
@@ -159,29 +161,109 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 		// Get the first pod's name for initial log display
 		currentPodName := podNames[0]
 
-		// Set the title to show which pod's logs are being displayed
-		podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s)", currentPodName))
+		// Create a flex container for the pod selector, container selector, and logs
+		podLogsContainer := tview.NewFlex().SetDirection(tview.FlexRow)
 
-		// Initial logs load
-		logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100)
+		// Create a form for pod and container selection
+		podSelectForm := tview.NewForm()
+
+		// Initialize selected container to match app label (most likely the main container)
+		preferredContainer := appLabel
+
+		// Get available containers for the selected pod
+		containers, err := k.GetPodContainers(clientset, namespace, currentPodName)
 		if err != nil {
-			podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
-		} else {
-			podLogsTextView.SetText(logs)
+			podLogsTextView.SetText(fmt.Sprintf("Error retrieving containers: %v", err))
 		}
 
-		// Create a dropdown to select different pods for logs
-		if len(podNames) > 1 {
-			// Create a form for pod selection
-			podSelectForm := tview.NewForm()
+		// Find the initial container to select (try to match the app label first)
+		initialContainerIndex := 0
+		currentContainer := ""
 
-			// Add dropdown for pod selection
-			podSelectForm.AddDropDown("Pod:", podNames, 0, func(option string, optionIndex int) {
-				selectedPod := podNames[optionIndex]
-				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s)", selectedPod))
+		// Try to find a container matching the app label first
+		for i, c := range containers {
+			if strings.Contains(c, preferredContainer) {
+				initialContainerIndex = i
+				currentContainer = c
+				break
+			}
+		}
 
-				// Fetch and display logs for the selected pod
-				logs, err := k.GetPodLogs(clientset, namespace, selectedPod, 100)
+		// If no matching container found, try to find a container that's not a sidecar
+		if currentContainer == "" {
+			for i, c := range containers {
+				if c != "istio-proxy" && !strings.Contains(c, "istio") &&
+					!strings.HasPrefix(c, "envoy") && !strings.HasPrefix(c, "linkerd") {
+					initialContainerIndex = i
+					currentContainer = c
+					break
+				}
+			}
+		}
+
+		// If still no container found, use the first one if available
+		if currentContainer == "" && len(containers) > 0 {
+			initialContainerIndex = 0
+			currentContainer = containers[0]
+		}
+
+		// Define the pod selection handler function so we can use it twice
+		podSelectionHandler = func(option string, optionIndex int) {
+			selectedPod := podNames[optionIndex]
+			currentPodName = selectedPod
+
+			// Update container list when pod changes
+			containers, err := k.GetPodContainers(clientset, namespace, selectedPod)
+			if err != nil {
+				podLogsTextView.SetText(fmt.Sprintf("Error retrieving containers: %v", err))
+				return
+			}
+
+			// Clear and rebuild the form
+			podSelectForm.Clear(true)
+
+			// Re-add pod dropdown - FIXED: pass the podSelectionHandler as the selected function
+			podSelectForm.AddDropDown("Pod:", podNames, optionIndex, podSelectionHandler)
+
+			// Find the best container to show for this pod
+			newContainerIndex := 0
+			currentContainer = ""
+
+			// Try to match by app label first
+			for i, c := range containers {
+				if strings.Contains(c, preferredContainer) {
+					newContainerIndex = i
+					currentContainer = c
+					break
+				}
+			}
+
+			// If no match by label, try to find a non-sidecar
+			if currentContainer == "" {
+				for i, c := range containers {
+					if c != "istio-proxy" && !strings.Contains(c, "istio") &&
+						!strings.HasPrefix(c, "envoy") && !strings.HasPrefix(c, "linkerd") {
+						newContainerIndex = i
+						currentContainer = c
+						break
+					}
+				}
+			}
+
+			// If still no container found, use the first one
+			if currentContainer == "" && len(containers) > 0 {
+				newContainerIndex = 0
+				currentContainer = containers[0]
+			}
+
+			// Add container dropdown with updated containers
+			podSelectForm.AddDropDown("Container:", containers, newContainerIndex, func(option string, containerIndex int) {
+				selectedContainer := containers[containerIndex]
+				currentContainer = selectedContainer
+				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
+
+				// Fetch logs for selected pod and container
+				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
 				if err != nil {
 					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
 				} else {
@@ -189,19 +271,59 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 				}
 			})
 
-			// Create a flex container for the pod selector and logs
-			podLogsContainer := tview.NewFlex().SetDirection(tview.FlexRow)
-			podLogsContainer.AddItem(podSelectForm, 3, 0, false)
-			podLogsContainer.AddItem(podLogsTextView, 0, 1, true)
+			// Update logs with the newly selected container
+			if currentContainer != "" {
+				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
 
-			podLogsContainer.SetBorder(true)
-			podLogsContainer.SetTitle(fmt.Sprintf("Pod Logs"))
-
-			mainFlex.AddItem(podLogsContainer, 0, 1, false)
-		} else {
-			// Only one pod, no need for a dropdown
-			mainFlex.AddItem(podLogsTextView, 0, 1, false)
+				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
+				if err != nil {
+					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
+				} else {
+					podLogsTextView.SetText(logs)
+				}
+			}
 		}
+
+		// Add pod selector dropdown with the handler we defined above
+		podSelectForm.AddDropDown("Pod:", podNames, 0, podSelectionHandler)
+
+		// Add initial container dropdown if containers are available
+		if len(containers) > 0 {
+			podSelectForm.AddDropDown("Container:", containers, initialContainerIndex, func(option string, containerIndex int) {
+				selectedContainer := containers[containerIndex]
+				currentContainer = selectedContainer
+				podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
+
+				// Fetch logs for selected pod and container
+				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
+				if err != nil {
+					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
+				} else {
+					podLogsTextView.SetText(logs)
+				}
+			})
+
+			// Initial logs load with selected container
+			podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s:%s)", currentPodName, currentContainer))
+
+			logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
+			if err != nil {
+				podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
+			} else {
+				podLogsTextView.SetText(logs)
+			}
+		} else {
+			podLogsTextView.SetTitle(fmt.Sprintf("Pod Logs (%s)", currentPodName))
+			podLogsTextView.SetText("No containers found in pod")
+		}
+
+		podLogsContainer.AddItem(podSelectForm, 3, 0, false)
+		podLogsContainer.AddItem(podLogsTextView, 0, 1, true)
+
+		podLogsContainer.SetBorder(true)
+		podLogsContainer.SetTitle(fmt.Sprintf("Pod Logs"))
+
+		mainFlex.AddItem(podLogsContainer, 0, 1, false)
 	} else {
 		// No pods found
 		podLogsTextView.SetTitle("Pod Logs")
@@ -212,7 +334,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	// Add help text at the bottom
 	helpText := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press Ctrl+C to exit.")
+		SetText("Use arrow keys to navigate and scroll. Press Tab to switch focus. Press F5 to refresh logs. Press Ctrl+C to exit.")
 	mainFlex.AddItem(helpText, 1, 0, false)
 
 	// Set up key bindings for refreshing logs
@@ -220,11 +342,27 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 		if event.Key() == tcell.KeyF5 {
 			// If pods are available, refresh logs for current selection
 			if len(podNames) > 0 {
-				currentPodName := podLogsTextView.GetTitle()
-				currentPodName = strings.TrimPrefix(currentPodName, "Pod Logs (")
-				currentPodName = strings.TrimSuffix(currentPodName, ")")
+				// Parse title to get current pod and container
+				title := podLogsTextView.GetTitle()
+				if !strings.HasPrefix(title, "Pod Logs (") || !strings.HasSuffix(title, ")") {
+					return event
+				}
 
-				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100)
+				info := strings.TrimPrefix(title, "Pod Logs (")
+				info = strings.TrimSuffix(info, ")")
+
+				parts := strings.Split(info, ":")
+
+				var currentPodName, currentContainer string
+				if len(parts) > 1 {
+					currentPodName = parts[0]
+					currentContainer = parts[1]
+				} else {
+					currentPodName = info
+					currentContainer = ""
+				}
+
+				logs, err := k.GetPodLogs(clientset, namespace, currentPodName, 100, currentContainer)
 				if err != nil {
 					podLogsTextView.SetText(fmt.Sprintf("Error retrieving logs: %v", err))
 				} else {

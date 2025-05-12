@@ -75,10 +75,60 @@ func GetPodNamesByLabel(clientset *kubernetes.Clientset, namespace, labelSelecto
 	return podNames
 }
 
-// GetPodLogs retrieves logs from a pod
-func GetPodLogs(clientset *kubernetes.Clientset, namespace, podName string, tailLines int64) (string, error) {
+// GetPodContainers retrieves the list of container names in a pod
+func GetPodContainers(clientset *kubernetes.Clientset, namespace, podName string) ([]string, error) {
+	pod, err := clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving pod: %v", err)
+	}
+
+	// Sort containers to prioritize app containers over istio/sidecars
+	var appContainers []string
+	var sidecarContainers []string
+	var initContainers []string
+
+	// Categorize regular containers
+	for _, container := range pod.Spec.Containers {
+		name := container.Name
+		if name == "istio-proxy" || name == "envoy" || name == "linkerd" {
+			sidecarContainers = append(sidecarContainers, name)
+		} else {
+			appContainers = append(appContainers, name)
+		}
+	}
+
+	// Add init containers
+	for _, container := range pod.Spec.InitContainers {
+		initContainers = append(initContainers, container.Name)
+	}
+
+	// Return containers in preferred order: app containers first, then sidecars, then init containers
+	result := append(appContainers, sidecarContainers...)
+	result = append(result, initContainers...)
+
+	return result, nil
+}
+
+// GetPodLogs retrieves logs from a pod's container
+func GetPodLogs(clientset *kubernetes.Clientset, namespace, podName string, tailLines int64, containerName string) (string, error) {
+	// If no container specified, get container names and try to find the most appropriate one
+	if containerName == "" {
+		containers, err := GetPodContainers(clientset, namespace, podName)
+		if err != nil {
+			return "", err
+		}
+
+		if len(containers) == 0 {
+			return "", fmt.Errorf("no containers found in pod %s", podName)
+		}
+
+		// Use the first container (which should be an app container based on GetPodContainers sorting)
+		containerName = containers[0]
+	}
+
 	podLogOptions := corev1.PodLogOptions{
 		TailLines: &tailLines,
+		Container: containerName,
 	}
 
 	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, &podLogOptions)
