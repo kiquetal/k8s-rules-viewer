@@ -70,8 +70,15 @@ type RuleResult struct {
 }
 
 // ValidatePodServiceAccount checks if pod has a serviceAccountName (required for mTLS)
-func ValidatePodServiceAccount(pod *corev1.Pod) bool {
-	return pod != nil && pod.Spec.ServiceAccountName != ""
+func ValidatePodServiceAccount(pod *corev1.Pod, appLabel string) bool {
+	if pod == nil || pod.Spec.ServiceAccountName == "" {
+		return false
+	}
+	// Check if serviceAccountName matches the app label value
+	if labelValue, exists := pod.Labels["app"]; exists {
+		return pod.Spec.ServiceAccountName == labelValue
+	}
+	return false
 }
 
 // ValidateDeploymentLabels checks if deployment has required labels
@@ -97,9 +104,6 @@ func ValidateServicePortNaming(service *corev1.Service) bool {
 		return false
 	}
 
-	// According to Istio port naming conventions:
-	// Port names should have the format <protocol>[-<suffix>]
-	// e.g., http, http-api, tcp-database
 	validProtocols := []string{"http", "http2", "https", "tcp", "tls", "grpc", "mongo", "redis"}
 
 	for _, port := range service.Spec.Ports {
@@ -111,8 +115,7 @@ func ValidateServicePortNaming(service *corev1.Service) bool {
 		// Check if the port name starts with a valid protocol prefix
 		validProtocolFound := false
 		for _, protocol := range validProtocols {
-			if strings.HasPrefix(port.Name, protocol) &&
-				(len(port.Name) == len(protocol) || port.Name[len(protocol)] == '-') {
+			if strings.HasPrefix(strings.ToLower(port.Name), protocol) {
 				validProtocolFound = true
 				break
 			}
@@ -136,16 +139,18 @@ func ValidateServiceHasScrapeTLS(service *corev1.Service) bool {
 }
 
 // EvaluateRules runs all validation rules against the resources in the namespace
-func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResult {
+func EvaluateRules(clientset *kubernetes.Clientset, namespace string, appLabel string) []RuleResult {
 	results := []RuleResult{}
 	ctx := context.TODO()
 
 	// Rule 1: Check if pods have serviceAccountName (for mTLS)
-	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: appLabel,
+	})
 	podServiceAccountValid := false
 	if err == nil && len(podList.Items) > 0 {
 		for _, pod := range podList.Items {
-			if ValidatePodServiceAccount(&pod) {
+			if ValidatePodServiceAccount(&pod, appLabel) {
 				podServiceAccountValid = true
 				break
 			}
@@ -153,12 +158,14 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResu
 	}
 	results = append(results, RuleResult{
 		Name:        "Service Account",
-		Description: "Pod has serviceAccountName specified (required for mTLS)",
+		Description: "Pod serviceAccountName matches app label value",
 		Passed:      podServiceAccountValid,
 	})
 
 	// Rule 2: Check if deployments have required labels
-	deploymentList, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
+	deploymentList, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: appLabel,
+	})
 	deploymentLabelsValid := false
 	if err == nil && len(deploymentList.Items) > 0 {
 		for _, deployment := range deploymentList.Items {
@@ -174,24 +181,12 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResu
 		Passed:      deploymentLabelsValid,
 	})
 
-	// Rule 3: Check only the service selected by app label
-	var appLabel string
-	if err == nil && len(deploymentList.Items) > 0 {
-		// Get app label from the first deployment that has it
-		for _, deployment := range deploymentList.Items {
-			if label, exists := deployment.Labels["app"]; exists {
-				appLabel = label
-				break
-			}
-		}
-	}
-
 	servicePortsValid := false
 	serviceScrapeTLSValid := false
 	if appLabel != "" {
 		// Get the service with matching app label
 		serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: "app=" + appLabel,
+			LabelSelector: appLabel,
 		})
 		if err == nil && len(serviceList.Items) > 0 {
 			service := &serviceList.Items[0]
@@ -202,15 +197,42 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResu
 
 	results = append(results, RuleResult{
 		Name:        "Service Port Naming",
-		Description: fmt.Sprintf("Service (app=%s) ports follow Istio naming conventions", appLabel),
+		Description: fmt.Sprintf("Service (%s) ports follow Istio naming conventions", appLabel),
 		Passed:      servicePortsValid,
 	})
 
 	results = append(results, RuleResult{
 		Name:        "Service scrape_tls Label",
-		Description: fmt.Sprintf("Service (app=%s) has label scrape_tls = true", appLabel),
+		Description: fmt.Sprintf("Service (%s) has label scrape_tls = true", appLabel),
 		Passed:      serviceScrapeTLSValid,
 	})
 
 	return results
+}
+
+// GetRulesCompliance evaluates all rules and returns a formatted compliance report string
+func GetRulesCompliance(clientset *kubernetes.Clientset, namespace string, appLabel string) string {
+	// Evaluate all rules
+	results := EvaluateRules(clientset, namespace, appLabel)
+	fmt.Printf("app-lable", appLabel)
+	// Get appropriate status symbols based on terminal capabilities
+	symbols := GetStatusSymbols()
+
+	// Format the results
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Compliance check for namespace: %s\n\n", namespace))
+
+	for _, result := range results {
+		symbol := symbols.Failure
+		if result.Passed {
+			symbol = symbols.Success
+		}
+
+		sb.WriteString(fmt.Sprintf("%s %s: %s\n",
+			symbol,
+			result.Name,
+			result.Description))
+	}
+
+	return sb.String()
 }

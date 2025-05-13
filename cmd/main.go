@@ -167,7 +167,7 @@ func renderTUI(app *tview.Application, clientset *kubernetes.Clientset, appLabel
 	rulesTextView := tview.NewTextView()
 	rulesTextView.SetBorder(true)
 	rulesTextView.SetTitle("Rules Compliance")
-	rulesTextView.SetText(tui.GetRulesCompliance(clientset, namespace))
+	rulesTextView.SetText(tui.GetRulesCompliance(clientset, namespace, labelSelector))
 	rulesTextView.SetScrollable(true)
 	mainFlex.AddItem(rulesTextView, 0, 1, true)
 
