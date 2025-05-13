@@ -108,14 +108,18 @@ func ValidateServicePortNaming(service *corev1.Service) bool {
 
 	for _, port := range service.Spec.Ports {
 		if port.Name == "" {
-			// Istio requires named ports
 			return false
 		}
 
-		// Check if the port name starts with a valid protocol prefix
+		// Split the port name by "-" and check if the first part is a valid protocol
+		portNameParts := strings.Split(strings.ToLower(port.Name), "-")
+		if len(portNameParts) == 0 {
+			return false
+		}
+
 		validProtocolFound := false
 		for _, protocol := range validProtocols {
-			if strings.HasPrefix(strings.ToLower(port.Name), protocol) {
+			if portNameParts[0] == protocol {
 				validProtocolFound = true
 				break
 			}
@@ -184,9 +188,10 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string, appLabel s
 	servicePortsValid := false
 	serviceScrapeTLSValid := false
 	if appLabel != "" {
-		// Get the service with matching app label
+		// Fix: Use proper label selector format "app=value"
+		labelSelector := fmt.Sprintf("app=%s", strings.TrimPrefix(appLabel, "app="))
 		serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: appLabel,
+			LabelSelector: labelSelector,
 		})
 		if err == nil && len(serviceList.Items) > 0 {
 			service := &serviceList.Items[0]
