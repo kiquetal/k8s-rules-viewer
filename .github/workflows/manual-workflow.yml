@@ -122,7 +122,4 @@ jobs:
             chmod +x k8s-rules-viewer-*
             ```
             
-            ### Changes in this release
-            - Add your changes here
-
-`
+            ### Features
