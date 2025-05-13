@@ -149,5 +149,3 @@ jobs:
             - Rules compliance checking
             - Krakend config validation
             - Cross-platform support (Linux, macOS, Windows)
-
-`
