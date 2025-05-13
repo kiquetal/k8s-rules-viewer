@@ -2,6 +2,13 @@
 
 A terminal UI (TUI) tool for visualizing Kubernetes deployment, service, pod, and rules compliance information, with Krakend config checks.
 
+## Table of Contents
+- [TUI Layout](#tui-layout-ascii-art)
+- [How to Run](#how-to-run)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Using the GitHub Actions Build](#using-the-github-actions-build)
+- [Module Verification](#module-verification)
+
 ## TUI Layout (ASCII Art)
 
 ```
@@ -99,3 +106,5 @@ go version
 ```
 
 ---
+
+`
