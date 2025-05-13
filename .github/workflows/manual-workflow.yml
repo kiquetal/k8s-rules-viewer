@@ -26,6 +26,11 @@ on:
         description: 'Release version (e.g., v1.0.0)'
         required: true
         type: string
+      release_title:
+        description: 'Release title (e.g., "Initial Release")'
+        required: true
+        type: string
+        default: 'New Release'
       create_release:
         description: 'Create GitHub Release'
         required: true
@@ -94,23 +99,39 @@ jobs:
           path: k8s-rules-viewer
           retention-days: 7
 
+      # Validate version format before creating release
+      - name: Validate version format
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        id: validate_version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          # Add v prefix if not already there
+          if [[ $VERSION != v* ]]; then
+            VERSION="v$VERSION"
+            echo "FORMATTED_VERSION=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "FORMATTED_VERSION=$VERSION" >> $GITHUB_OUTPUT
+          fi
+          echo "Using version tag: $VERSION"
+
       # Create GitHub Release and upload assets
       - name: Create Release
         if: ${{ github.event.inputs.create_release == 'true' }}
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: Release ${{ github.event.inputs.version }} (${{ github.event.inputs.environment }})
+          tag_name: ${{ steps.validate_version.outputs.FORMATTED_VERSION }}
+          name: "${{ github.event.inputs.release_title }} ${{ steps.validate_version.outputs.FORMATTED_VERSION }}"
           draft: false
           prerelease: ${{ github.event.inputs.environment != 'production' }}
+          generate_release_notes: true
           files: |
             k8s-rules-viewer-linux-amd64
             k8s-rules-viewer-darwin-amd64
             k8s-rules-viewer-darwin-arm64
             k8s-rules-viewer-windows-amd64.exe
           body: |
-            ## k8s-rules-viewer ${{ github.event.inputs.version }}
+            ## k8s-rules-viewer ${{ steps.validate_version.outputs.FORMATTED_VERSION }}
             
             **Environment:** ${{ github.event.inputs.environment }}
             **Build Type:** ${{ github.event.inputs.build_type }}
@@ -123,3 +144,10 @@ jobs:
             ```
             
             ### Features
+            - Terminal UI for viewing Kubernetes resources
+            - Deployment, Service, and Pod info visualization
+            - Rules compliance checking
+            - Krakend config validation
+            - Cross-platform support (Linux, macOS, Windows)
+
+`
