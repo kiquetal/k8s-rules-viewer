@@ -71,4 +71,31 @@ A terminal UI (TUI) tool for visualizing Kubernetes deployment, service, pod, an
 - **Arrow keys**: Scroll content in focused panel
 - **Ctrl+C**: Exit the application
 
+## Using the GitHub Actions Build
+
+You can download the pre-built executable from the GitHub Actions artifacts:
+
+1. Go to the Actions tab in the repository
+2. Select the most recent "Manual Operations Workflow" run
+3. Download the artifact for your environment
+4. Extract and make the binary executable:
+   ```sh
+   chmod +x k8s-rules-viewer
+   ```
+
+## Module Verification
+
+To verify your Go module setup is correct:
+
+```sh
+# Verify module dependencies are correctly configured
+go mod verify
+
+# If you need to update dependencies
+go mod tidy
+
+# To ensure you're using Go version 1.24.0 as specified in go.mod
+go version
+```
+
 ---
