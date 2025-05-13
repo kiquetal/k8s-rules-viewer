@@ -22,6 +22,19 @@ on:
           - default
           - release
           - debug
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+      create_release:
+        description: 'Create GitHub Release'
+        required: true
+        default: false
+        type: boolean
+
+# Add permissions needed to create releases
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -62,6 +75,17 @@ jobs:
           fi
           
           eval "go build $BUILD_FLAGS -o k8s-rules-viewer ./cmd/main.go"
+          
+          # Create platform-specific binaries if needed
+          if [ "${{ github.event.inputs.create_release }}" = "true" ]; then
+            # Linux
+            GOOS=linux GOARCH=amd64 eval "go build $BUILD_FLAGS -o k8s-rules-viewer-linux-amd64 ./cmd/main.go"
+            # macOS
+            GOOS=darwin GOARCH=amd64 eval "go build $BUILD_FLAGS -o k8s-rules-viewer-darwin-amd64 ./cmd/main.go"
+            GOOS=darwin GOARCH=arm64 eval "go build $BUILD_FLAGS -o k8s-rules-viewer-darwin-arm64 ./cmd/main.go"
+            # Windows
+            GOOS=windows GOARCH=amd64 eval "go build $BUILD_FLAGS -o k8s-rules-viewer-windows-amd64.exe ./cmd/main.go"
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -69,3 +93,36 @@ jobs:
           name: k8s-rules-viewer-${{ github.event.inputs.environment }}-${{ github.event.inputs.build_type }}
           path: k8s-rules-viewer
           retention-days: 7
+
+      # Create GitHub Release and upload assets
+      - name: Create Release
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }} (${{ github.event.inputs.environment }})
+          draft: false
+          prerelease: ${{ github.event.inputs.environment != 'production' }}
+          files: |
+            k8s-rules-viewer-linux-amd64
+            k8s-rules-viewer-darwin-amd64
+            k8s-rules-viewer-darwin-arm64
+            k8s-rules-viewer-windows-amd64.exe
+          body: |
+            ## k8s-rules-viewer ${{ github.event.inputs.version }}
+            
+            **Environment:** ${{ github.event.inputs.environment }}
+            **Build Type:** ${{ github.event.inputs.build_type }}
+            
+            ### Installation
+            Download the appropriate binary for your platform and make it executable.
+            
+            ```
+            chmod +x k8s-rules-viewer-*
+            ```
+            
+            ### Changes in this release
+            - Add your changes here
+
+`
