@@ -29,12 +29,19 @@ func GetServiceInfo(clientset *kubernetes.Clientset, namespace, serviceName stri
 			port.Name, validation, port.Port, port.TargetPort.String(), port.Protocol)
 	}
 
-	info := fmt.Sprintf("Name: %s\nNamespace: %s\nClusterIP: %s\nType: %s\nSelector: %v\nPorts:\n%s",
+	// Add scrape_tls label info
+	scrapeTLS := "false"
+	if val, exists := service.Labels["scrape_tls"]; exists && val == "true" {
+		scrapeTLS = "true"
+	}
+
+	info := fmt.Sprintf("Name: %s\nNamespace: %s\nClusterIP: %s\nType: %s\nSelector: %v\nscrape_tls: %s\nPorts:\n%s",
 		service.Name,
 		service.Namespace,
 		service.Spec.ClusterIP,
 		service.Spec.Type,
 		service.Spec.Selector,
+		scrapeTLS,
 		portInfo)
 
 	return info

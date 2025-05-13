@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"context"
+	"fmt"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -125,6 +126,15 @@ func ValidateServicePortNaming(service *corev1.Service) bool {
 	return true
 }
 
+// ValidateServiceHasScrapeTLS checks if the service has the label "scrape_tls = true"
+func ValidateServiceHasScrapeTLS(service *corev1.Service) bool {
+	if service == nil || service.Labels == nil {
+		return false
+	}
+	val, exists := service.Labels["scrape_tls"]
+	return exists && val == "true"
+}
+
 // EvaluateRules runs all validation rules against the resources in the namespace
 func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResult {
 	results := []RuleResult{}
@@ -164,46 +174,43 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string) []RuleResu
 		Passed:      deploymentLabelsValid,
 	})
 
-	// Rule 3: Check if services follow Istio port naming conventions
-	serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
-	servicePortsValid := false
-	if err == nil && len(serviceList.Items) > 0 {
-		for _, service := range serviceList.Items {
-			if ValidateServicePortNaming(&service) {
-				servicePortsValid = true
+	// Rule 3: Check only the service selected by app label
+	var appLabel string
+	if err == nil && len(deploymentList.Items) > 0 {
+		// Get app label from the first deployment that has it
+		for _, deployment := range deploymentList.Items {
+			if label, exists := deployment.Labels["app"]; exists {
+				appLabel = label
 				break
 			}
 		}
 	}
+
+	servicePortsValid := false
+	serviceScrapeTLSValid := false
+	if appLabel != "" {
+		// Get the service with matching app label
+		serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: "app=" + appLabel,
+		})
+		if err == nil && len(serviceList.Items) > 0 {
+			service := &serviceList.Items[0]
+			servicePortsValid = ValidateServicePortNaming(service)
+			serviceScrapeTLSValid = ValidateServiceHasScrapeTLS(service)
+		}
+	}
+
 	results = append(results, RuleResult{
 		Name:        "Service Port Naming",
-		Description: "Service ports follow Istio naming conventions",
+		Description: fmt.Sprintf("Service (app=%s) ports follow Istio naming conventions", appLabel),
 		Passed:      servicePortsValid,
 	})
 
-	// Add standard rules for comparison
 	results = append(results, RuleResult{
-		Name:        "Resource Limits",
-		Description: "Resource limits are set correctly",
-		Passed:      true,
+		Name:        "Service scrape_tls Label",
+		Description: fmt.Sprintf("Service (app=%s) has label scrape_tls = true", appLabel),
+		Passed:      serviceScrapeTLSValid,
 	})
 
 	return results
-}
-
-// GetRulesCompliance returns information about Kubernetes rules compliance
-func GetRulesCompliance(clientset *kubernetes.Clientset, namespace string) string {
-	symbols := GetStatusSymbols()
-	results := EvaluateRules(clientset, namespace)
-
-	lines := []string{}
-	for _, result := range results {
-		symbol := symbols.Failure
-		if result.Passed {
-			symbol = symbols.Success
-		}
-		lines = append(lines, symbol+" "+result.Name+": "+result.Description)
-	}
-
-	return strings.Join(lines, "\n")
 }
