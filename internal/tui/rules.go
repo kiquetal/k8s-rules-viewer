@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"log"
 	"os"
 	"strings"
 
@@ -11,6 +12,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+// Initialize logger at package level
+var debugLog *log.Logger
+
+func init() {
+	// Create or append to debug.log file
+	logFile, err := os.OpenFile("k8s-rules-viewer-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return // Silently fail if we can't create log file
+	}
+	debugLog = log.New(logFile, "", log.LstdFlags)
+}
 
 // StatusSymbols provides both emoji and text fallbacks for statuses
 type StatusSymbols struct {
@@ -100,6 +113,10 @@ func ValidateDeploymentLabels(deployment *appsv1.Deployment) bool {
 
 // ValidateServicePortNaming checks if service ports follow Istio naming conventions
 func ValidateServicePortNaming(service *corev1.Service) bool {
+	if debugLog != nil {
+		debugLog.Printf("Validating service ports for service: %s", service.Name)
+		debugLog.Printf("Service ports: %+v", service.Spec.Ports)
+	}
 	if service == nil || len(service.Spec.Ports) == 0 {
 		return false
 	}
@@ -144,6 +161,10 @@ func ValidateServiceHasScrapeTLS(service *corev1.Service) bool {
 
 // EvaluateRules runs all validation rules against the resources in the namespace
 func EvaluateRules(clientset *kubernetes.Clientset, namespace string, appLabel string) []RuleResult {
+	if debugLog != nil {
+		debugLog.Printf("Starting evaluation with appLabel: %q in namespace: %q", appLabel, namespace)
+	}
+
 	results := []RuleResult{}
 	ctx := context.TODO()
 
@@ -151,6 +172,9 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string, appLabel s
 	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: appLabel,
 	})
+	if debugLog != nil {
+		debugLog.Printf("Pod list query result - Error: %v, Count: %d", err, len(podList.Items))
+	}
 	podServiceAccountValid := false
 	if err == nil && len(podList.Items) > 0 {
 		for _, pod := range podList.Items {
@@ -170,6 +194,9 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string, appLabel s
 	deploymentList, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: appLabel,
 	})
+	if debugLog != nil {
+		debugLog.Printf("Deployment list query result - Error: %v, Count: %d", err, len(deploymentList.Items))
+	}
 	deploymentLabelsValid := false
 	if err == nil && len(deploymentList.Items) > 0 {
 		for _, deployment := range deploymentList.Items {
@@ -188,13 +215,39 @@ func EvaluateRules(clientset *kubernetes.Clientset, namespace string, appLabel s
 	servicePortsValid := false
 	serviceScrapeTLSValid := false
 	if appLabel != "" {
-		// Fix: Use proper label selector format "app=value"
-		labelSelector := fmt.Sprintf("app=%s", strings.TrimPrefix(appLabel, "app="))
-		serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err == nil && len(serviceList.Items) > 0 {
-			service := &serviceList.Items[0]
+		// Clean the label and get the actual value
+		cleanLabel := strings.Trim(strings.TrimPrefix(appLabel, "app="), "\"")
+
+		// Try both app label and argocd instance label
+		labelSelectors := []string{
+			fmt.Sprintf("app=%s", cleanLabel),
+			fmt.Sprintf("argocd.argoproj.io/instance=%s", cleanLabel),
+		}
+
+		var service *corev1.Service
+		for _, selector := range labelSelectors {
+			if debugLog != nil {
+				debugLog.Printf("Trying service label selector: %s", selector)
+			}
+
+			serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
+				LabelSelector: selector,
+			})
+			if debugLog != nil {
+				debugLog.Printf("Service list query result for %s - Error: %v, Count: %d",
+					selector, err, len(serviceList.Items))
+			}
+
+			if err == nil && len(serviceList.Items) > 0 {
+				service = &serviceList.Items[0]
+				if debugLog != nil {
+					debugLog.Printf("Found service: %s with labels: %v", service.Name, service.Labels)
+				}
+				break
+			}
+		}
+
+		if service != nil {
 			servicePortsValid = ValidateServicePortNaming(service)
 			serviceScrapeTLSValid = ValidateServiceHasScrapeTLS(service)
 		}
